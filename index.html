@@ -10,7 +10,6 @@
     body { margin: 0; padding: 0; overflow: hidden; }
   </style>
   <script>
-    // کامپوننت چرخش خودکار مدل
     AFRAME.registerComponent("auto-turn", {
       schema: { speed: { default: 40 } },
       tick: function (t, dt) {
@@ -24,7 +23,6 @@
       }
     });
 
-    // کامپوننت چرخش لمسی مدل با لمس صفحه گوشی یا درگ موس
     AFRAME.registerComponent("touch-turn", {
       init: function () {
         let isDown = false, lastX = 0, lastY = 0;
@@ -52,23 +50,34 @@
       }
     });
 
-    // کنترل هوشمند شروع و توقف پخش مدیا (ویدئو و صوت) هنگام دیده‌شدن تارگت
+    // مدیریت دقیق مدیا: قطع کامل صدا تا زمان پیدا شدن قطعی تارگت
     AFRAME.registerComponent("media-controller", {
-      schema: { type: { default: "video" }, loop: { default: true } },
+      schema: {
+        type: { default: "video" },
+        src: { default: "" },
+        loop: { default: true }
+      },
       init: function () {
         const el = this.el;
         const targetEntity = el.closest("[mindar-image-target]");
         if (!targetEntity) return;
 
-        let videoEl = null;
+        let mediaEl = null;
+
         if (this.data.type === "video") {
-          videoEl = document.createElement("video");
-          videoEl.src = el.getAttribute("src");
-          videoEl.crossOrigin = "anonymous";
-          videoEl.loop = this.data.loop;
-          videoEl.playsInline = true;
-          videoEl.muted = false;
-          const texture = new THREE.VideoTexture(videoEl);
+          mediaEl = document.createElement("video");
+          mediaEl.src = this.data.src;
+          mediaEl.crossOrigin = "anonymous";
+          mediaEl.loop = (this.data.loop === true || this.data.loop === "true");
+          mediaEl.playsInline = true;
+          mediaEl.preload = "auto";
+          mediaEl.pause();
+          mediaEl.currentTime = 0;
+
+          const texture = new THREE.VideoTexture(mediaEl);
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+
           el.addEventListener("loaded", () => {
             const mesh = el.getObject3D("mesh");
             if (mesh && mesh.material) {
@@ -76,16 +85,34 @@
               mesh.material.needsUpdate = true;
             }
           });
+        } else if (this.data.type === "audio") {
+          mediaEl = new Audio(this.data.src);
+          mediaEl.loop = (this.data.loop === true || this.data.loop === "true");
+          mediaEl.preload = "auto";
+          mediaEl.pause();
+          mediaEl.currentTime = 0;
         }
 
+        // تنها و تنها با پیدا شدن تارگت پخش شروع می‌شود
         targetEntity.addEventListener("targetFound", () => {
-          if (this.data.type === "video" && videoEl) videoEl.play();
-          if (this.data.type === "audio" && el.components.sound) el.components.sound.playSound();
+          if (mediaEl) {
+            const p = mediaEl.play();
+            if (p !== undefined) {
+              p.catch(() => {
+                // در صورت نیاز به مجوز مرورگر، با لمس فعال می‌شود
+                const unlock = () => { mediaEl.play(); window.removeEventListener("touchstart", unlock); window.removeEventListener("click", unlock); };
+                window.addEventListener("touchstart", unlock, { once: true });
+                window.addEventListener("click", unlock, { once: true });
+              });
+            }
+          }
         });
 
+        // به محض گم شدن تارگت، پخش و صدا بلافاصله متوقف می‌شوند
         targetEntity.addEventListener("targetLost", () => {
-          if (this.data.type === "video" && videoEl) videoEl.pause();
-          if (this.data.type === "audio" && el.components.sound) el.components.sound.pauseSound();
+          if (mediaEl) {
+            mediaEl.pause();
+          }
         });
       }
     });
@@ -97,14 +124,14 @@
     
     <a-entity mindar-image-target="targetIndex: 0">
       
-      <a-entity position="0 0 0.1" rotation="0 0 0" scale="0.5 0.5 0.5" auto-turn="speed: 40" touch-turn>
+      <a-entity position="0 0 0.1" rotation="0 0 0" scale="0.75 0.75 0.75" auto-turn="speed: 40" touch-turn>
         <a-gltf-model src="models/model1.glb"></a-gltf-model>
       </a-entity>
     </a-entity>
 
     <a-entity mindar-image-target="targetIndex: 1">
       
-      <a-video src="videos/video1.mp4" position="0 0 0.1" width="0.80" height="0.45" material="shader: flat; side: double" media-controller="type: video; loop: false"></a-video>
+      <a-plane position="0 0 0.1" width="0.80" height="0.45" material="shader: flat; side: double" media-controller="type: video; src: videos/video1.mp4; loop: true"></a-plane>
     </a-entity>
   </a-scene>
 </body>
