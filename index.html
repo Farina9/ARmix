@@ -1,128 +1,79 @@
 <!DOCTYPE html>
-<html lang="fa">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>WebAR Experience</title>
+  <meta charset="UTF-8" />
+  <title>AR Experience</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-  <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
-  <style>
-    .a-enter-vr, .a-enter-ar, .a-orientation-modal, .a-modal, #a-scene-container { 
-      display: none !important; 
-      visibility: hidden !important; 
-    }
-    body, html {
-      margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent;
-    }
-    #audio-toggle-btn {
-      position: fixed; bottom: 24px; right: 24px; z-index: 10000;
-      background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #fff; padding: 12px 18px; border-radius: 50px; font-size: 14px;
-      font-family: system-ui, sans-serif; display: flex; align-items: center; gap: 8px;
-      cursor: pointer; backdrop-filter: blur(10px); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-      user-select: none; -webkit-tap-highlight-color: transparent;
-    }
-  </style>
-  <script>
-    let isGlobalMuted = false;
-    AFRAME.registerComponent("ar-video-controller", {
-      schema: {
-        video: { type: "selector" },
-        autoPlay: { type: "boolean", default: true }
-      },
-      init: function () {
-        const vid = this.data.video;
-        if (!vid) return;
-        this.el.addEventListener("targetFound", () => {
-          if (this.data.autoPlay) {
-            vid.muted = isGlobalMuted;
-            vid.play().catch(e => console.log("Tap screen to play video:", e));
-          }
-        });
-        this.el.addEventListener("targetLost", () => {
-          vid.pause();
-        });
-      }
-    });
-    AFRAME.registerComponent("ar-audio-controller", {
-      schema: {
-        audio: { type: "selector" },
-        autoPlay: { type: "boolean", default: true },
-        stopOnLost: { type: "boolean", default: true },
-        loop: { type: "boolean", default: true },
-        volume: { type: "number", default: 1 },
-        delay: { type: "number", default: 0 }
-      },
-      init: function () {
-        const aud = this.data.audio;
-        if (!aud) return;
-        aud.loop = this.data.loop;
-        aud.volume = Math.max(0, Math.min(1, this.data.volume));
-        this.playTimeout = null;
-        this.el.addEventListener("targetFound", () => {
-          if (!this.data.autoPlay) return;
-          clearTimeout(this.playTimeout);
-          this.playTimeout = setTimeout(() => {
-            aud.currentTime = 0;
-            aud.muted = isGlobalMuted;
-            aud.play().catch(e => console.log("Tap to play audio:", e));
-          }, this.data.delay * 1000);
-        });
-        this.el.addEventListener("targetLost", () => {
-          clearTimeout(this.playTimeout);
-          if (this.data.stopOnLost) {
-            aud.pause();
-            aud.currentTime = 0;
-          }
-        });
-      }
-    });
-    function toggleAudio() {
-      isGlobalMuted = !isGlobalMuted;
-      document.querySelectorAll("video, audio").forEach(el => { el.muted = isGlobalMuted; });
-      const btn = document.getElementById("audio-toggle-btn");
-      if (btn) {
-        btn.innerHTML = isGlobalMuted ? "<span>🔇</span><span>صدا: خاموش</span>" : "<span>🔊</span><span>صدا: روشن</span>";
-      }
-    }
-  </script>
+  <style>body { margin: 0; overflow: hidden; }</style>
 </head>
 <body>
-  <button id="audio-toggle-btn" onclick="toggleAudio()"><span>🔊</span><span>صدا: روشن</span></button>
-  <a-scene 
-    mindar-image="imageTargetSrc: ./targets.mind;" 
-    color-space="sRGB" 
-    renderer="colorManagement: true, physicallyCorrectLights" 
-    vr-mode-ui="enabled: false" 
-    device-orientation-permission-ui="enabled: false">
-    <a-assets>
-      <a-asset-item id="model-0" src="models/model1.glb"></a-asset-item>
-      <video id="vid-1" src="videos/video1.mp4" preload="auto" crossorigin="anonymous" webkit-playsinline playsinline loop></video>
-    </a-assets>
+  <a-scene mindar-image="imageTargetSrc: targets.mind; maxTrackers: 1; autoStart: true; uiScanning: no;"
+           vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false" embedded>
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- تارگت 0 : مدل ۳بعدی -->
-    <a-entity mindar-image-target="targetIndex: 0">
-      <a-gltf-model 
-        src="#model-0" 
-        position="0 0 0" 
-        rotation="0 0 0" 
-        scale="0.75 0.75 0.75"
-        animation-mixer="loop: repeat">
-      </a-gltf-model>
-    </a-entity>
+    <!-- کامپوننت چرخش دستی + اتوماتیک برای مدل‌های سه‌بعدی -->
+    <script>
+      AFRAME.registerComponent('model-interaction', {
+        schema: { manualRotate: {default: true}, autoRotate: {default: false}, autoRotateSpeed: {default: 30} },
+        init: function () {
+          this.autoOn = this.data.autoRotate;
+          this.speed = this.data.autoRotateSpeed;
+          this.el.addEventListener('model-loaded', () => { if (this.autoOn) this.startAuto(); });
+          if (this.data.manualRotate) {
+            this.lastX = null; this.lastY = null;
+            this.el.addEventListener('mousedown', e => this.dragStart(e));
+            this.el.addEventListener('mousemove', e => { if (this.dragging) this.dragMove(e); });
+            window.addEventListener('mouseup', () => this.dragEnd());
+            this.el.addEventListener('touchstart', e => this.dragStart(e.touches[0]), {passive: true});
+            this.el.addEventListener('touchmove', e => { if (this.dragging) this.dragMove(e.touches[0]); }, {passive: true});
+            window.addEventListener('touchend', () => this.dragEnd());
+          }
+        },
+        startAuto: function () { this.el.setAttribute('animation__auto', 'property: object3D.rotation.y; to: 360; loop: true; dur: ' + (36000 / this.speed) + '; easing: linear'); },
+        dragStart: function (e) { this.dragging = true; this.lastX = e.clientX; this.lastY = e.clientY; if (this.autoOn) this.el.removeAttribute('animation__auto'); },
+        dragMove: function (e) {
+          if (!this.dragging) return;
+          const dx = e.clientX - this.lastX, dy = e.clientY - this.lastY;
+          const obj = this.el.getObject3D('mesh'); if (!obj) return;
+          obj.rotation.y += dx * 0.01; obj.rotation.x += dy * 0.01;
+          this.lastX = e.clientX; this.lastY = e.clientY;
+        },
+        dragEnd: function () { this.dragging = false; }
+      });
+      AFRAME.registerComponent('video-handler', {
+        schema: { targetIndex: {default: 0}, loop: {default: true} },
+        init: function () {
+          const v = document.createElement('video');
+          v.src = this.el.getAttribute('src'); v.loop = this.data.loop === 'true' || this.data.loop === true;
+          v.setAttribute('crossorigin', 'anonymous'); v.muted = false;
+          this.el.getObject3D('mesh') || this.el.addEventListener('loaded', () => {});
+          this.el.setObject3D('mesh', new THREE.VideoTexture(v) && this.el.getObject3D('mesh'));
+          const sceneEl = this.el.sceneEl;
+          sceneEl.addEventListener('targetFound', () => { v.play(); });
+          sceneEl.addEventListener('targetLost', () => { v.pause(); });
+        }
+      });
+      AFRAME.registerComponent('audio-handler', {
+        schema: { targetIndex: {default: 0} },
+        init: function () {
+          const s = this.el.components.sound;
+          this.el.sceneEl.addEventListener('targetFound', () => { if (s) s.playSound(); });
+          this.el.sceneEl.addEventListener('targetLost', () => { if (s) s.pauseSound(); });
+        }
+      });
+    </script>
 
-    <!-- تارگت 1 : ویدیو -->
-    <a-entity mindar-image-target="targetIndex: 1" ar-video-controller="video: #vid-1; autoPlay: true">
-      <a-plane 
-        src="#vid-1" 
-        position="0 0 0" 
-        rotation="0 0 0" 
-        width="1" 
-        height="0.56"
-        material="shader: flat; transparent: true; opacity: 1;">
-      </a-plane>
+    <a-entity mindar-image-target="targetIndex: 0">
+
+      <a-entity gltf-model="models/model1.glb"
+                position="0 0 0" rotation="0 0 0"
+                scale="0.75 0.75 0.75"
+                model-interaction="manualRotate: true; autoRotate: true; autoRotateSpeed: 30"></a-entity>
+
+      <a-video src="videos/video1.mp4" position="0 0 0" rotation="0 0 0"
+                width="1.2000000000000002" height="0.675"
+                material="shader: flat; side: double" video-handler="targetIndex: 1; loop: true"></a-video>
     </a-entity>
   </a-scene>
 </body>
