@@ -1,80 +1,78 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>AR Experience</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-  <style>body { margin: 0; overflow: hidden; }</style>
+  <style>body{margin:0;overflow:hidden}</style>
 </head>
 <body>
-  <a-scene mindar-image="imageTargetSrc: targets.mind; maxTrackers: 1; autoStart: true; uiScanning: no;"
-           vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false" embedded>
-    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+  <a-scene mindar-image="imageTargetSrc: targets.mind; maxTrackers: 5; autoStart: true; uiScanning: no;"
+           embedded vr-mode-ui="enabled:false" device-orientation-permission-ui="enabled:false">
+    <a-camera look-controls="enabled:false"></a-camera>
 
-    <!-- کامپوننت چرخش دستی + اتوماتیک برای مدل‌های سه‌بعدی -->
     <script>
-      AFRAME.registerComponent('model-interaction', {
-        schema: { manualRotate: {default: true}, autoRotate: {default: false}, autoRotateSpeed: {default: 30} },
-        init: function () {
-          this.autoOn = this.data.autoRotate;
-          this.speed = this.data.autoRotateSpeed;
-          this.el.addEventListener('model-loaded', () => { if (this.autoOn) this.startAuto(); });
-          if (this.data.manualRotate) {
-            this.lastX = null; this.lastY = null;
-            this.el.addEventListener('mousedown', e => this.dragStart(e));
-            this.el.addEventListener('mousemove', e => { if (this.dragging) this.dragMove(e); });
-            window.addEventListener('mouseup', () => this.dragEnd());
-            this.el.addEventListener('touchstart', e => this.dragStart(e.touches[0]), {passive: true});
-            this.el.addEventListener('touchmove', e => { if (this.dragging) this.dragMove(e.touches[0]); }, {passive: true});
-            window.addEventListener('touchend', () => this.dragEnd());
+      // چرخش دستی/اتومات مدل‌ها
+      AFRAME.registerComponent('model-interaction',{
+        schema:{manualRotate:{default:true},autoRotate:{default:false},autoRotateSpeed:{default:30}},
+        init:function(){
+          this.autoOn=this.data.autoRotate; this.speed=this.data.autoRotateSpeed;
+          this.el.addEventListener('model-loaded',()=>{ if(this.autoOn) this.startAuto(); });
+          if(this.data.manualRotate){
+            this.drag=false; this.lastX=null; this.lastY=null;
+            const start=e=>{ this.drag=true; const p=e.touches?e.touches[0]:e; this.lastX=p.clientX; this.lastY=p.clientY; if(this.autoOn) this.el.removeAttribute('animation__auto'); };
+            const move=e=>{ if(!this.drag) return; const p=e.touches?e.touches[0]:e; const dx=p.clientX-this.lastX, dy=p.clientY-this.lastY;
+              const obj=this.el.getObject3D('mesh'); if(!obj) return; obj.rotation.y += dx*0.01; obj.rotation.x += dy*0.01;
+              this.lastX=p.clientX; this.lastY=p.clientY; };
+            const end=()=>{ this.drag=false; };
+            this.el.addEventListener('mousedown',start); window.addEventListener('mousemove',move); window.addEventListener('mouseup',end);
+            this.el.addEventListener('touchstart',start,{passive:true}); window.addEventListener('touchmove',move,{passive:true}); window.addEventListener('touchend',end);
           }
         },
-        startAuto: function () { this.el.setAttribute('animation__auto', 'property: object3D.rotation.y; to: 360; loop: true; dur: ' + (36000 / this.speed) + '; easing: linear'); },
-        dragStart: function (e) { this.dragging = true; this.lastX = e.clientX; this.lastY = e.clientY; if (this.autoOn) this.el.removeAttribute('animation__auto'); },
-        dragMove: function (e) {
-          if (!this.dragging) return;
-          const dx = e.clientX - this.lastX, dy = e.clientY - this.lastY;
-          const obj = this.el.getObject3D('mesh'); if (!obj) return;
-          obj.rotation.y += dx * 0.01; obj.rotation.x += dy * 0.01;
-          this.lastX = e.clientX; this.lastY = e.clientY;
-        },
-        dragEnd: function () { this.dragging = false; }
+        startAuto:function(){ const dur = 36000/Math.max(1,this.speed); this.el.setAttribute('animation__auto','property: object3D.rotation.y; to: 360; loop: true; dur: '+dur+'; easing: linear'); }
       });
-      AFRAME.registerComponent('video-handler', {
-        schema: { targetIndex: {default: 0}, loop: {default: true} },
-        init: function () {
-          const v = document.createElement('video');
-          v.src = this.el.getAttribute('src'); v.loop = this.data.loop === 'true' || this.data.loop === true;
-          v.setAttribute('crossorigin', 'anonymous'); v.muted = false;
-          this.el.getObject3D('mesh') || this.el.addEventListener('loaded', () => {});
-          this.el.setObject3D('mesh', new THREE.VideoTexture(v) && this.el.getObject3D('mesh'));
-          const sceneEl = this.el.sceneEl;
-          sceneEl.addEventListener('targetFound', () => { v.play(); });
-          sceneEl.addEventListener('targetLost', () => { v.pause(); });
+
+      // هندل پخش ویدیو بر اساس پیدا/گم شدن تارگت
+      AFRAME.registerComponent('video-handler',{
+        schema:{targetIndex:{default:0},loop:{default:true}},
+        init:function(){
+          const el=this.el; const v=document.createElement('video'); v.src=el.getAttribute('src'); v.setAttribute('crossorigin','anonymous');
+          v.loop=(this.data.loop==='true'||this.data.loop===true); v.muted=false; v.playsInline=true;
+          const tex=new THREE.VideoTexture(v); el.addEventListener('loaded',()=>{ const mesh=el.getObject3D('mesh'); if(mesh && mesh.material){ mesh.material.map=tex; mesh.material.needsUpdate=true; } });
+          const scene=el.sceneEl;
+          scene.addEventListener('targetFound',()=>{ v.play(); });
+          scene.addEventListener('targetLost',()=>{ v.pause(); });
         }
       });
-      AFRAME.registerComponent('audio-handler', {
-        schema: { targetIndex: {default: 0} },
-        init: function () {
-          const s = this.el.components.sound;
-          this.el.sceneEl.addEventListener('targetFound', () => { if (s) s.playSound(); });
-          this.el.sceneEl.addEventListener('targetLost', () => { if (s) s.pauseSound(); });
+
+      // هندل صوت
+      AFRAME.registerComponent('audio-handler',{
+        schema:{targetIndex:{default:0}},
+        init:function(){
+          const s=this.el.components.sound;
+          const scene=this.el.sceneEl;
+          scene.addEventListener('targetFound',()=>{ if(s) s.playSound(); });
+          scene.addEventListener('targetLost',()=>{ if(s) s.pauseSound(); });
         }
       });
     </script>
 
-    <a-entity mindar-image-target="targetIndex: 0">
+    
+      <a-entity mindar-image-target="targetIndex: 0">
+        <a-entity gltf-model="models/model1.glb"
+                   position="0 0 0" rotation="0 0 0"
+                   scale="0.8 0.8 0.8"
+                   model-interaction="manualRotate: true; autoRotate: true; autoRotateSpeed: 30"></a-entity>
+      </a-entity>
 
-      <a-entity gltf-model="models/model1.glb"
-                position="0 0 0" rotation="0 0 0"
-                scale="0.75 0.75 0.75"
-                model-interaction="manualRotate: true; autoRotate: true; autoRotateSpeed: 30"></a-entity>
+      <a-entity mindar-image-target="targetIndex: 1">
+        <a-video src="videos/video1.mp4" position="0 0 0" rotation="0 0 0"
+                   width="1.28" height="0.72"
+                   material="shader: flat; side: double"
+                   video-handler="targetIndex: 1; loop: true"></a-video>
+      </a-entity>
 
-      <a-video src="videos/video1.mp4" position="0 0 0" rotation="0 0 0"
-                width="1.2000000000000002" height="0.675"
-                material="shader: flat; side: double" video-handler="targetIndex: 1; loop: true"></a-video>
-    </a-entity>
   </a-scene>
 </body>
 </html>
